@@ -41,10 +41,11 @@ else:
             fp.write(path,df,compression=compression,row_group_offsets=[0,2],write_index=False)
             p=fp.ParquetFile(path)
             assert len(p.row_groups)==2
-            actual=p.to_pandas()
-            pd.testing.assert_frame_equal(actual,df)
             independent=duckdb.connect().execute('SELECT i, f, cat, text, nullable, flag FROM read_parquet(?) ORDER BY i',[str(path)]).fetchall()
             assert independent==[(1,1.5,'a','α',1,True),(2,None,'b',None,None,None),(3,3.5,None,'c',3,False),(4,4.5,'a','d',4,True)],independent
+            outcomes.append({'compression':compression,'gate':'independent-DuckDB-read','status':'PASS','row_groups':2})
+            actual=p.to_pandas()
+            pd.testing.assert_frame_equal(actual,df)
             try: pd.testing.assert_frame_equal(actual,df.assign(i=df.i+1))
             except AssertionError: pass
             else: raise AssertionError('Poisoned oracle did not fail')

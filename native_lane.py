@@ -59,9 +59,16 @@ def main():
         zsrc = download('madler/zlib', '51b7f2abdade71cd9bb0e7a373ef2610ec6f9daf', 'zlib-1.3.1')
         hsrc = download('HDFGroup/hdf5', '2d926cf0426d2ed9403946071d9b05ac8b4dd778', 'hdf5-1.14.2')
         prefix = ROOT / 'native-prefix'
+        hook = ROOT/'H5detect-toolchain.cmake'
+        hook.write_text('cmake_language(DEFER CALL target_compile_options H5detect PRIVATE /Od)\n')
+        shutil.copy(hook, OUT/hook.name)
         run(['cmake', '-S', zsrc, '-B', ROOT/'zbuild', '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_INSTALL_PREFIX='+prefix.as_posix(), '-DZLIB_BUILD_EXAMPLES=OFF'], 'zlib-configure')
         run(['cmake', '--build', ROOT/'zbuild', '--config', 'Release', '--target', 'install', '--parallel', '4'], 'zlib-build')
-        run(['cmake', '-S', hsrc, '-B', ROOT/'hbuild', '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_INSTALL_PREFIX='+prefix.as_posix(), '-DCMAKE_PREFIX_PATH='+prefix.as_posix(), '-DBUILD_SHARED_LIBS=ON', '-DBUILD_TESTING=OFF', '-DHDF5_BUILD_CPP_LIB=OFF', '-DHDF5_BUILD_FORTRAN=OFF', '-DHDF5_BUILD_HL_LIB=ON', '-DHDF5_BUILD_TOOLS=OFF', '-DHDF5_BUILD_EXAMPLES=OFF', '-DHDF5_ENABLE_Z_LIB_SUPPORT=ON', '-DHDF5_ENABLE_SZIP_SUPPORT=OFF', '-DZLIB_USE_STATIC_LIBS=OFF', '-DHDF5_EXTERNAL_LIB_PREFIX='], 'hdf5-configure')
+        run(['cmake', '-S', hsrc, '-B', ROOT/'hbuild', '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_INSTALL_PREFIX='+prefix.as_posix(), '-DCMAKE_PREFIX_PATH='+prefix.as_posix(), '-DCMAKE_PROJECT_HDF5_INCLUDE='+hook.as_posix(), '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON', '-DBUILD_SHARED_LIBS=ON', '-DBUILD_STATIC_LIBS=OFF', '-DBUILD_TESTING=OFF', '-DHDF5_BUILD_CPP_LIB=OFF', '-DHDF5_BUILD_FORTRAN=OFF', '-DHDF5_BUILD_HL_LIB=ON', '-DHDF5_BUILD_TOOLS=OFF', '-DHDF5_BUILD_EXAMPLES=OFF', '-DHDF5_ENABLE_Z_LIB_SUPPORT=ON', '-DHDF5_ENABLE_SZIP_SUPPORT=OFF', '-DZLIB_USE_STATIC_LIBS=OFF', '-DHDF5_EXTERNAL_LIB_PREFIX='], 'hdf5-configure')
+        shutil.copy(ROOT/'hbuild'/'compile_commands.json', OUT/'HDF5-compile_commands.json')
+        commands=json.loads((ROOT/'hbuild'/'compile_commands.json').read_text())
+        assert all('/Od' not in c['command'] for c in commands if not c['file'].endswith('H5detect.c'))
+        assert all('/Od' in c['command'] for c in commands if c['file'].endswith('H5detect.c'))
         run(['cmake', '--build', ROOT/'hbuild', '--config', 'Release', '--target', 'install', '--parallel', '4'], 'hdf5-build')
         os.environ['HDF5_DIR'] = str(prefix)
         os.environ['HDF5_VERSION'] = '1.14.2'
@@ -103,7 +110,7 @@ def main():
         shutil.copytree(SOURCE/'fastparquet'/'test', clean/'test', dirs_exist_ok=True)
         if (SOURCE/'test-data').exists():
             shutil.copytree(SOURCE/'test-data', clean/'test-data', dirs_exist_ok=True)
-        run([testpy, '-m', 'pytest', 'test/test_api.py', 'test/test_compression.py', 'test/test_encoding.py', 'test/test_speedups.py', 'test/test_thrift_structures.py', '-q', '--timeout=60', '--junitxml='+str(OUT/'upstream.xml')], 'upstream-tests', clean, check=False)
+        run([testpy, '-m', 'pytest', '-c', SOURCE/'pyproject.toml', 'test/test_api.py', 'test/test_compression.py', 'test/test_encoding.py', 'test/test_speedups.py', 'test/test_thrift_structures.py', '-q', '--timeout=60', '--junitxml='+str(OUT/'upstream.xml')], 'upstream-tests', clean, check=False)
 
 def audit(wheel, expected):
     import pefile

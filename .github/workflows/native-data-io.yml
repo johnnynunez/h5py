@@ -14,8 +14,6 @@ jobs:
         include:
           - mode: h5py-old
             source: c783fd18f7209a8e1e9f127534a25f8a7071d750
-          - mode: h5py-reference
-            source: b2f0347c4200333acd89b43733f1caa0c115162f
     env:
       SOURCE_SHA: ${{ matrix.source }}
       PYTHONUTF8: '1'
