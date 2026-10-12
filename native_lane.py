@@ -48,9 +48,9 @@ def main():
         zsrc = download('madler/zlib', '51b7f2abdade71cd9bb0e7a373ef2610ec6f9daf', 'zlib-1.3.1')
         hsrc = download('HDFGroup/hdf5', '2d926cf0426d2ed9403946071d9b05ac8b4dd778', 'hdf5-1.14.2')
         prefix = ROOT / 'native-prefix'
-        run(['cmake', '-S', zsrc, '-B', ROOT/'zbuild', '-A', 'ARM64', '-DCMAKE_INSTALL_PREFIX='+prefix.as_posix(), '-DZLIB_BUILD_EXAMPLES=OFF'], 'zlib-configure')
+        run(['cmake', '-S', zsrc, '-B', ROOT/'zbuild', '-G', 'Visual Studio 17 2022', '-A', 'ARM64', '-DCMAKE_INSTALL_PREFIX='+prefix.as_posix(), '-DZLIB_BUILD_EXAMPLES=OFF'], 'zlib-configure')
         run(['cmake', '--build', ROOT/'zbuild', '--config', 'Release', '--target', 'install', '--parallel', '4'], 'zlib-build')
-        run(['cmake', '-S', hsrc, '-B', ROOT/'hbuild', '-A', 'ARM64', '-DCMAKE_INSTALL_PREFIX='+prefix.as_posix(), '-DCMAKE_PREFIX_PATH='+prefix.as_posix(), '-DBUILD_SHARED_LIBS=ON', '-DBUILD_TESTING=OFF', '-DHDF5_BUILD_CPP_LIB=OFF', '-DHDF5_BUILD_FORTRAN=OFF', '-DHDF5_BUILD_HL_LIB=ON', '-DHDF5_BUILD_TOOLS=OFF', '-DHDF5_BUILD_EXAMPLES=OFF', '-DHDF5_ENABLE_Z_LIB_SUPPORT=ON', '-DHDF5_ENABLE_SZIP_SUPPORT=OFF', '-DZLIB_USE_STATIC_LIBS=OFF', '-DHDF5_EXTERNAL_LIB_PREFIX='], 'hdf5-configure')
+        run(['cmake', '-S', hsrc, '-B', ROOT/'hbuild', '-G', 'Visual Studio 17 2022', '-A', 'ARM64', '-DCMAKE_INSTALL_PREFIX='+prefix.as_posix(), '-DCMAKE_PREFIX_PATH='+prefix.as_posix(), '-DBUILD_SHARED_LIBS=ON', '-DBUILD_TESTING=OFF', '-DHDF5_BUILD_CPP_LIB=OFF', '-DHDF5_BUILD_FORTRAN=OFF', '-DHDF5_BUILD_HL_LIB=ON', '-DHDF5_BUILD_TOOLS=OFF', '-DHDF5_BUILD_EXAMPLES=OFF', '-DHDF5_ENABLE_Z_LIB_SUPPORT=ON', '-DHDF5_ENABLE_SZIP_SUPPORT=OFF', '-DZLIB_USE_STATIC_LIBS=OFF', '-DHDF5_EXTERNAL_LIB_PREFIX='], 'hdf5-configure')
         run(['cmake', '--build', ROOT/'hbuild', '--config', 'Release', '--target', 'install', '--parallel', '4'], 'hdf5-build')
         os.environ['HDF5_DIR'] = str(prefix)
         os.environ['HDF5_VERSION'] = '1.14.2'
@@ -107,7 +107,8 @@ def audit(wheel, expected):
                 assert actual == value and len(z.read(name)) == int(size), name
         report['record_valid']=True
         meta=next(n for n in z.namelist() if n.endswith('.dist-info/METADATA'))
-        assert '\nVersion: '+expected+'\n' in z.read(meta).decode()
+        from email import message_from_bytes
+        assert message_from_bytes(z.read(meta))['Version'] == expected
         report['licenses']=[n for n in z.namelist() if any(t in n.lower() for t in ['license','copying'])]
         assert report['licenses'], 'Missing package license'
         z.extractall(payload)
