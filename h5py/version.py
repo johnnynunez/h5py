@@ -33,6 +33,9 @@ if version_tuple.post is not None:
 if version_tuple.dev is not None:
     version += ".dev{0.dev:d}".format(version_tuple)
 
+# Isolated legacy backport of upstream h5py/h5py#2556; not an upstream release.
+version += "+np2556.arm64.1"
+
 hdf5_version_tuple = _h5.get_libversion()
 hdf5_version = "%d.%d.%d" % hdf5_version_tuple
 
