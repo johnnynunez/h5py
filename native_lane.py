@@ -41,16 +41,27 @@ def main():
     actual = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=SOURCE, text=True).strip()
     assert actual == expected, (actual, expected)
     (OUT / 'provenance.json').write_text(json.dumps({'source_sha': actual, 'wrapper_sha': os.environ['GITHUB_SHA'], 'mode': MODE, 'python': sys.version, 'platform': platform.platform(), 'sysconfig': sysconfig.get_platform(), 'harness_sha256': hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest(), 'pins': {'numpy': '2.5.4', 'pandas': '3.0.6' if MODE == 'fastparquet' else None}, 'original_locks_unchanged': True}, indent=2))
-    run([PY, '-m', 'pip', 'install', '--only-binary=:all:', 'numpy==2.5.4', 'Cython==3.0.12', 'setuptools==80.9.0', 'wheel', 'setuptools-scm', 'pkgconfig', 'build', 'pefile', 'delvewheel', 'pytest==8.4.2', 'pytest-timeout', 'hypothesis', 'cmake<4'], 'tools')
+    run([PY, '-m', 'pip', 'install', '--only-binary=:all:', 'numpy==2.5.4', 'Cython==3.0.12', 'setuptools==80.9.0', 'wheel', 'setuptools-scm', 'pkgconfig', 'build', 'pefile', 'delvewheel', 'pytest==8.4.2', 'pytest-timeout', 'pytest-mpi', 'hypothesis', 'cmake<4', 'ninja'], 'tools')
     wheel_dir = OUT / 'wheels'
     wheel_dir.mkdir(exist_ok=True)
     if MODE == 'h5py-old':
+        vswhere = pathlib.Path(os.environ['ProgramFiles(x86)'])/'Microsoft Visual Studio'/'Installer'/'vswhere.exe'
+        installation = subprocess.check_output([vswhere, '-latest', '-products', '*', '-property', 'installationPath'], text=True).strip()
+        vcvars = pathlib.Path(installation)/'VC'/'Auxiliary'/'Build'/'vcvarsall.bat'
+        assert vcvars.is_file(), vcvars
+        vcenv = subprocess.check_output(f'cmd.exe /s /c ""{vcvars}" arm64 && set"', text=True)
+        for line in vcenv.splitlines():
+            if '=' in line and not line.startswith('='):
+                key, value = line.split('=',1)
+                os.environ[key] = value
+        assert os.environ['VSCMD_ARG_TGT_ARCH'].lower() == 'arm64'
+        (OUT/'toolchain.json').write_text(json.dumps({'installation':installation,'target':os.environ['VSCMD_ARG_TGT_ARCH'],'cl':shutil.which('cl'),'generator':'Ninja','configuration':'Release'},indent=2))
         zsrc = download('madler/zlib', '51b7f2abdade71cd9bb0e7a373ef2610ec6f9daf', 'zlib-1.3.1')
         hsrc = download('HDFGroup/hdf5', '2d926cf0426d2ed9403946071d9b05ac8b4dd778', 'hdf5-1.14.2')
         prefix = ROOT / 'native-prefix'
-        run(['cmake', '-S', zsrc, '-B', ROOT/'zbuild', '-G', 'Visual Studio 17 2022', '-A', 'ARM64', '-DCMAKE_INSTALL_PREFIX='+prefix.as_posix(), '-DZLIB_BUILD_EXAMPLES=OFF'], 'zlib-configure')
+        run(['cmake', '-S', zsrc, '-B', ROOT/'zbuild', '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_INSTALL_PREFIX='+prefix.as_posix(), '-DZLIB_BUILD_EXAMPLES=OFF'], 'zlib-configure')
         run(['cmake', '--build', ROOT/'zbuild', '--config', 'Release', '--target', 'install', '--parallel', '4'], 'zlib-build')
-        run(['cmake', '-S', hsrc, '-B', ROOT/'hbuild', '-G', 'Visual Studio 17 2022', '-A', 'ARM64', '-DCMAKE_INSTALL_PREFIX='+prefix.as_posix(), '-DCMAKE_PREFIX_PATH='+prefix.as_posix(), '-DBUILD_SHARED_LIBS=ON', '-DBUILD_TESTING=OFF', '-DHDF5_BUILD_CPP_LIB=OFF', '-DHDF5_BUILD_FORTRAN=OFF', '-DHDF5_BUILD_HL_LIB=ON', '-DHDF5_BUILD_TOOLS=OFF', '-DHDF5_BUILD_EXAMPLES=OFF', '-DHDF5_ENABLE_Z_LIB_SUPPORT=ON', '-DHDF5_ENABLE_SZIP_SUPPORT=OFF', '-DZLIB_USE_STATIC_LIBS=OFF', '-DHDF5_EXTERNAL_LIB_PREFIX='], 'hdf5-configure')
+        run(['cmake', '-S', hsrc, '-B', ROOT/'hbuild', '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_INSTALL_PREFIX='+prefix.as_posix(), '-DCMAKE_PREFIX_PATH='+prefix.as_posix(), '-DBUILD_SHARED_LIBS=ON', '-DBUILD_TESTING=OFF', '-DHDF5_BUILD_CPP_LIB=OFF', '-DHDF5_BUILD_FORTRAN=OFF', '-DHDF5_BUILD_HL_LIB=ON', '-DHDF5_BUILD_TOOLS=OFF', '-DHDF5_BUILD_EXAMPLES=OFF', '-DHDF5_ENABLE_Z_LIB_SUPPORT=ON', '-DHDF5_ENABLE_SZIP_SUPPORT=OFF', '-DZLIB_USE_STATIC_LIBS=OFF', '-DHDF5_EXTERNAL_LIB_PREFIX='], 'hdf5-configure')
         run(['cmake', '--build', ROOT/'hbuild', '--config', 'Release', '--target', 'install', '--parallel', '4'], 'hdf5-build')
         os.environ['HDF5_DIR'] = str(prefix)
         os.environ['HDF5_VERSION'] = '1.14.2'
@@ -74,7 +85,7 @@ def main():
     audit(wheel, expected_version)
     run([PY, '-m', 'venv', ROOT/'test-env'], 'venv')
     testpy = ROOT/'test-env'/'Scripts'/'python.exe'
-    deps = ['numpy==2.5.4', 'pytest==8.4.2', 'pytest-timeout', 'hypothesis']
+    deps = ['numpy==2.5.4', 'pytest==8.4.2', 'pytest-timeout', 'pytest-mpi', 'hypothesis']
     if MODE == 'fastparquet':
         deps += ['pandas==3.0.6', 'cramjam==2.13.0', 'fsspec', 'packaging', 'duckdb==1.5.6']
     run([testpy, '-m', 'pip', 'install', '--only-binary=:all:', *deps, wheel], 'test-install')
@@ -85,9 +96,9 @@ def main():
     # Remove native build paths; repaired wheels must resolve their own DLLs.
     os.environ.pop('HDF5_DIR', None)
     os.environ['PATH'] = os.pathsep.join(p for p in os.environ['PATH'].split(os.pathsep) if 'native-prefix' not in p)
-    run([testpy, ROOT/'wrapper'/'audit_oracles.py', MODE, OUT], 'oracles', clean, check=False)
+    run([testpy, '-I', ROOT/'wrapper'/'audit_oracles.py', MODE, OUT], 'oracles', clean, check=False)
     if MODE.startswith('h5py'):
-        run([testpy, '-m', 'pytest', '--pyargs', 'h5py.tests', '-q', '--timeout=60', '--junitxml='+str(OUT/'upstream.xml')], 'upstream-tests', clean, check=False)
+        run([testpy, '-m', 'pytest', '-c', SOURCE/'pytest.ini', '--pyargs', 'h5py.tests', '-q', '--timeout=60', '--junitxml='+str(OUT/'upstream.xml')], 'upstream-tests', clean, check=False)
     else:
         shutil.copytree(SOURCE/'fastparquet'/'test', clean/'test', dirs_exist_ok=True)
         if (SOURCE/'test-data').exists():
